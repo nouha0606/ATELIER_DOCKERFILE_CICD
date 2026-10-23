@@ -19,22 +19,17 @@ jobs:
   #   2. Installer Python 3.12            -> action actions/setup-python@v5
   #   3. Installer les dépendances        -> pip install -r requirements.txt  (+ pytest)
   #   4. Lancer les tests                 -> pytest -v tests/
-  Tests:
+Tests:
 runs-on: ubuntu-latest
 steps:
-- name: Récupérer le code
-uses: actions/checkout@v4
+- uses: actions/checkout@v4
 
-  - name: Installer Python
-    uses: actions/setup-python@v5
-    with:
+- uses: actions/setup-python@v5
+  with:
       python-version: "3.12"
 
-  - name: Installer les dépendances
-    run: pip install -r requirements.txt pytest
-
-  - name: Lancer les tests
-    run: pytest -v tests/
+- run: pip install -r requirements.txt pytest
+- run: pytest -v tests/
   # ---------------------------------------------------------------
   # JOB 2 - Livraison continue : construire l'image Docker
   # ---------------------------------------------------------------
@@ -49,24 +44,17 @@ uses: actions/checkout@v4
   #
   # Pourquoi l'étape 3 et 4 ? Chaque job tourne sur une machine neuve :
   # l'image construite ici n'existe pas sur la machine du job 3.
-  Docker:
+Docker:
 runs-on: ubuntu-latest
 needs: Tests
 steps:
-- name: Récupérer le code
-uses: actions/checkout@v4
-
-  - name: Construire l'image Docker
-    run: docker build -t $IMAGE_NAME:${{ github.sha }} .
-
-  - name: Enregistrer l'image
-    run: docker save $IMAGE_NAME:${{ github.sha }} -o image.tar
-
-  - name: Envoyer l'image
-    uses: actions/upload-artifact@v4
-    with:
-      name: image-docker
-      path: image.tar
+- uses: actions/checkout@v4
+- run: docker build -t atelier-flask:${{ github.sha }} .
+- run: docker save atelier-flask:${{ github.sha }} -o image.tar
+- uses: actions/upload-artifact@v4
+  with:
+  name: image-docker
+  path: image.tar
   # ---------------------------------------------------------------
   # JOB 3 - Déploiement continu : simulation de mise en production
   # ---------------------------------------------------------------
@@ -80,33 +68,28 @@ uses: actions/checkout@v4
   #      (attention : l'application met quelques secondes à démarrer)
   #   5. Afficher un message de succès dans le résumé du pipeline
   #      -> echo "..." >> $GITHUB_STEP_SUMMARY
-  Production:
+Production:
 runs-on: ubuntu-latest
 needs: Docker
 environment: production
 steps:
-- name: Récupérer l'image
-uses: actions/download-artifact@v4
+- uses: actions/download-artifact@v4
 with:
 name: image-docker
+-run: docker load -i image.tar
+-run: docker run -d --name mon-app -p 4000:4000 atelier-flask:${{ github.sha }}
+-name: Vérifier l'application
+run: |
+for i in {1..15}; do
+if curl -fsS http://localhost:4000/; then
+echo "Application démarrée avec succès"
+exit 0
+fi
+sleep 2
+done
+echo "Erreur : l'application ne répond pas"
+docker logs mon-app
+exit 1
 
-  - name: Charger l'image Docker
-    run: docker load -i image.tar
-
-  - name: Démarrer le conteneur
-    run: docker run -d --name mon-app -p 4000:4000 $IMAGE_NAME:${{ github.sha }}
-
-  - name: Vérifier l'application
-    run: |
-      for i in {1..10}; do
-        if curl -fsS http://localhost:4000/; then
-          echo "Application démarrée avec succès !"
-          exit 0
-        fi
-        sleep 2
-      done
-      echo "Erreur : l'application ne répond pas"
-      exit 1
-
-  - name: Afficher le résultat
-    run: echo "Mise en production simulée réussie !" >> $GITHUB_STEP_SUMMARY
+- name: Résumé du déploiement
+run: echo "Déploiement simulé réussi !" >> "$GITHUB_STEP_SUMMARY"
